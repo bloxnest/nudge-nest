@@ -76,7 +76,8 @@ namespace NudgeNest
             allowVisible = !startHidden;
             settings = Settings.Load();
             engine = new AntiAfkEngine(settings);
-            heightT = new Tween(0, delegate { ClientSize = new Size(ClientSize.Width, (int)Math.Round(heightT.Value)); });
+            // the window is always the page width; only its height eases between pages
+            heightT = new Tween(0, delegate { ClientSize = new Size(Px(Width0), (int)Math.Round(heightT.Value)); });
             fadeT = new Tween(1, delegate { Opacity = fadeT.Value; });
 
             SuspendLayout();

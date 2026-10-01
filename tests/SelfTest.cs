@@ -521,13 +521,16 @@ namespace NudgeNest
                 form.ShowFromTray();
                 form.TopMost = true;
                 Pump(1.2);
+                Check(ContentFits(form), "the main page fits in the window (" + Overflow(form) + ")");
                 Snap(form.Bounds, Path.Combine(shots, "main.png"));
                 form.ShowPage(Page.Settings);
                 Pump(0.8);
                 Check(form.CurrentPage == Page.Settings, "the settings icon's page opens in the same window");
+                Check(ContentFits(form), "the Options page fits in the window (" + Overflow(form) + ")");
                 Snap(form.Bounds, Path.Combine(shots, "settings.png"));
                 form.ShowPage(Page.About);
                 Pump(0.8);
+                Check(ContentFits(form), "the About page fits in the window (" + Overflow(form) + ")");
                 Snap(form.Bounds, Path.Combine(shots, "about.png"));
                 Check(PageHasText(form, "Made by xRed1"), "the About page says Made by xRed1");
                 form.ShowPage(Page.Main);
@@ -653,6 +656,28 @@ namespace NudgeNest
         }
 
         // ---------- helpers ----------
+
+        /// <summary>Is every control on the visible page inside the window, with the page's margin to spare?</summary>
+        private static bool ContentFits(Form form)
+        {
+            return Overflow(form) == "fits";
+        }
+
+        private static string Overflow(Form form)
+        {
+            Size client = form.ClientSize;
+            foreach (Control page in form.Controls)
+            {
+                if (!(page is Panel) || !page.Visible) continue;
+                if (page.Width > client.Width || page.Height > client.Height)
+                    return "page " + page.Size + " is bigger than the window " + client;
+                foreach (Control c in page.Controls)
+                    if (c.Visible && (c.Right > client.Width - 8 || c.Bottom > client.Height))
+                        return (c.Text.Length > 0 ? "'" + c.Text + "'" : c.GetType().Name) + " ends at " + c.Right + "," + c.Bottom
+                            + " but the window is " + client.Width + " x " + client.Height;
+            }
+            return "fits";
+        }
 
         private static bool PageHasText(Control root, string text)
         {
