@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -60,7 +61,7 @@ namespace NudgeNest
         private DateTime shownNudge = DateTime.MinValue;
 
         private Forms.NotifyIcon tray;
-        private Drawing.Icon onIcon, standbyIcon, offIcon, haltedIcon;
+        private Drawing.Icon onIcon, standbyIcon, offIcon, haltedIcon, taskbarIcon, smallIcon;
         private Forms.ContextMenuStrip trayMenu;
         private Forms.ToolStripMenuItem onItem, jumpItem, cameraItem, customItem;
 
@@ -126,6 +127,7 @@ namespace NudgeNest
 
             CreateTray();
             RoundCorners();
+            Window.SourceInitialized += delegate { SetWindowIcons(); };
             WireWindow();
             WirePower();
             WireActivity();
@@ -187,6 +189,35 @@ namespace NudgeNest
         {
             var content = Find<FrameworkElement>("ContentRoot");
             content.SizeChanged += delegate { content.Clip = new RectangleGeometry(new Rect(content.RenderSize), 9, 9); };
+        }
+
+        private const uint WM_SETICON = 0x0080;
+        private static readonly IntPtr IconSmall = IntPtr.Zero, IconBig = new IntPtr(1);
+
+        /// <summary>
+        /// The taskbar shows the window's big icon at 24 px (at 100% scaling). Left alone, Windows shrinks the
+        /// 32 px picture and blurs it, so the window gets the icon file's picture drawn for exactly that size.
+        /// </summary>
+        private void SetWindowIcons()
+        {
+            IntPtr hWnd = new WindowInteropHelper(Window).Handle;
+            double scale = VisualTreeHelper.GetDpi(Window).DpiScaleX;
+            taskbarIcon = AppIcon((int)Math.Round(24 * scale));
+            smallIcon = AppIcon((int)Math.Round(16 * scale));
+            if (taskbarIcon != null) NativeMethods.SendMessage(hWnd, WM_SETICON, IconBig, taskbarIcon.Handle);
+            if (smallIcon != null) NativeMethods.SendMessage(hWnd, WM_SETICON, IconSmall, smallIcon.Handle);
+        }
+
+        /// <summary>The picture closest to this size from the icon file built into the exe (assets\icon.ico).</summary>
+        private static Drawing.Icon AppIcon(int size)
+        {
+            using (Stream s = Assembly.GetExecutingAssembly().GetManifestResourceStream("NudgeNest.icon.ico"))
+                return s == null ? null : new Drawing.Icon(s, size, size);
+        }
+
+        internal Drawing.Size TaskbarIconSize
+        {
+            get { return taskbarIcon == null ? Drawing.Size.Empty : taskbarIcon.Size; }
         }
 
         // ---------- window animations and the hidden icons (same as BloxNest) ----------

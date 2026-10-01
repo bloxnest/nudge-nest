@@ -532,6 +532,11 @@ namespace NudgeNest
                 Pump(1.0);
                 Color fill = SelectedFill(onSegment);
                 Check(fill == Color.FromArgb(0x86, 0xE3, 0xCE), "the On switch lights up mint (" + fill.Name + ")");
+                IntPtr bigIcon = N.SendMessage(new Wpf.Interop.WindowInteropHelper(w.Window).Handle, 0x007F, new IntPtr(1), IntPtr.Zero);   // WM_GETICON, big
+                int taskbarSize = (int)Math.Round(24 * WpfMedia.VisualTreeHelper.GetDpi(w.Window).DpiScaleX);
+                Size bigSize = bigIcon == IntPtr.Zero ? Size.Empty : Icon.FromHandle(bigIcon).Size;
+                Check(bigSize.Width == taskbarSize && w.TaskbarIconSize.Width == taskbarSize,
+                    "the taskbar gets the icon drawn for its size, " + taskbarSize + " px, so Windows doesn't blur it (" + bigSize.Width + " px)");
                 Check(ContentFits(w), "the main page fits in the window (" + Overflow(w) + ")");
                 Snap(Bounds(w), Path.Combine(shots, "main.png"));
                 var heights = new List<int> { Bounds(w).Height };
