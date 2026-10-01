@@ -1,0 +1,49 @@
+# Builds the app on GitHub's own Windows machines from the code in this repository, then publishes it
+# with a SHA-256 checksum and a signed build-provenance attestation. Nobody uploads an exe by hand.
+# Runs when a version tag like v2.0.0 is pushed.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write       # create the GitHub release
+  id-token: write       # sign the build provenance
+  attestations: write   # publish the attestation
+
+env:
+  APP_EXE: NudgeNest.exe
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Get the source
+        uses: actions/checkout@v4
+
+      - name: Build from source
+        shell: cmd
+        run: build.bat
+
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash $env:APP_EXE -Algorithm SHA256).Hash.ToLower()
+          "$hash  $env:APP_EXE" | Out-File -Encoding ascii "$env:APP_EXE.sha256"
+          "SHA-256 of $env:APP_EXE: ``$hash``" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Sign build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: ${{ env.APP_EXE }}
+
+      - name: Publish the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $hash = (Get-Content "$env:APP_EXE.sha256").Split(' ')[0]
+          $notes = (Get-Content .github/release-notes.md -Raw).Replace('{{SHA256}}', $hash).Replace('{{REPO}}', $env:GITHUB_REPOSITORY)
+          $notes | Out-File -Encoding utf8 notes.md
+          gh release create $env:GITHUB_REF_NAME $env:APP_EXE "$env:APP_EXE.sha256" --title $env:GITHUB_REF_NAME --notes-file notes.md --verify-tag

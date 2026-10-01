@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<!-- The 1200x630 social preview (docs/assets/og-image.jpg). Render with tools/make_og_image.ps1. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; background: #0b0f0b; }
+  body { position: relative; font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif; color: #f3f5ee; }
+  .art { position: absolute; inset: 0; background: url("../docs/assets/hero-night.jpg") 62% 62% / cover no-repeat; filter: saturate(.85) brightness(.85); }
+  .shade { position: absolute; inset: 0;
+    background: linear-gradient(90deg, rgb(11 15 11 / .98) 0, rgb(11 15 11 / .9) 44%, rgb(11 15 11 / .45) 78%, rgb(11 15 11 / .75) 100%),
+                linear-gradient(180deg, rgb(11 15 11 / .5) 0, rgb(11 15 11 / 0) 30%, rgb(11 15 11 / 0) 70%, rgb(11 15 11 / .8) 100%); }
+  .copy { position: absolute; left: 72px; top: 72px; width: 640px; }
+  .brand { display: flex; align-items: center; gap: 14px; font-size: 34px; font-weight: 700; letter-spacing: -.03em; }
+  .brand img { width: 52px; height: 52px; }
+  h1 { margin: 64px 0 0; font-size: 74px; line-height: 1.04; letter-spacing: -.045em; font-weight: 750; }
+  h1 span { display: block; color: #86e3ce; }
+  .line { margin-top: 30px; color: #c4cabf; font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif; font-size: 24px; }
+  .by { position: absolute; left: 72px; bottom: 56px; color: #8c958a; font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif; font-size: 20px; }
+  .app { position: absolute; right: 70px; top: 50%; height: 520px; transform: translateY(-50%);
+    border: 1px solid #262d25; border-radius: 12px; box-shadow: 0 28px 70px rgb(0 0 0 / .6); }
+</style>
+</head>
+<body>
+  <div class="art"></div>
+  <div class="shade"></div>
+  <div class="copy">
+    <div class="brand"><img src="../assets/logo.svg" alt="">NudgeNest</div>
+    <h1>Stay in the hangout. <span>Keep using your PC.</span></h1>
+    <p class="line">Free anti-AFK app for Roblox · Windows 10/11 · Open source</p>
+  </div>
+  <p class="by">Made by xRed1</p>
+  <img class="app" src="../docs/assets/app-main.png" alt="">
+</body>
+</html>

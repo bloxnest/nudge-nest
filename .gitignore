@@ -1,0 +1,12 @@
+# Built programs: releases are built by GitHub Actions from this source, never committed
+*.exe
+*.pdb
+
+# Self-test output (stand-in windows, logs, screenshots)
+tests/bin/
+
+# Editor and OS clutter
+.vs/
+.vscode/
+Thumbs.db
+desktop.ini

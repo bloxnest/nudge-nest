@@ -1,0 +1,14 @@
+{
+  "name": "NudgeNest",
+  "short_name": "NudgeNest",
+  "description": "A free anti-AFK app for Roblox on Windows, by xRed1.",
+  "start_url": "/nudge-nest/",
+  "scope": "/nudge-nest/",
+  "display": "browser",
+  "background_color": "#0b0f0b",
+  "theme_color": "#0b0f0b",
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

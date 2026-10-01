@@ -1,0 +1,26 @@
+# On every push and pull request: build the app and run the self-tests that don't need a desktop.
+# (The window and nudge tests move focus and the mouse, so they run on a real PC: tests\run-tests.bat.)
+name: Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - name: Get the source
+        uses: actions/checkout@v4
+
+      - name: Build the app
+        shell: cmd
+        run: build.bat
+
+      - name: Build and run the self-tests (keys, settings, log)
+        shell: cmd
+        run: tests\run-tests.bat keys settings log

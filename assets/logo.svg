@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="NudgeNest logo">
+  <g transform="rotate(-12 128 128)">
+    <path fill="#9AA99F" d="M28 38H182V66H56V204H28Z"/>
+    <path fill="#86E3CE" d="M76 90H230V214H76Z"/>
+    <path fill="#102821" d="M153 110L194 152H170V190H136V152H112Z"/>
+  </g>
+</svg>
