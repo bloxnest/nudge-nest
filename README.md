@@ -47,7 +47,7 @@ You don't have to take "safe" on trust. All of this can be checked:
 - **Built by GitHub.** Every release is built from this code by
   [GitHub Actions](.github/workflows/release.yml), with a SHA-256 checksum and a signed
   build-provenance attestation. Nobody uploads an exe by hand.
-- **No admin rights**, one exe under 200 KB, under 30 MB of memory and no CPU while it waits in the tray.
+- **No admin rights**, one exe of about 250 KB, under 30 MB of memory and no CPU while it waits in the tray.
 
 Check a download:
 

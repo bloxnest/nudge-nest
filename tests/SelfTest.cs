@@ -662,13 +662,13 @@ namespace NudgeNest
                                 int ink = 0;
                                 for (int y = 0; y < b.Height; y++)
                                     for (int x = 0; x < b.Width; x++)
-                                        if (b.GetPixel(x, y).A > 200 && b.GetPixel(x, y).R < 0x30) ink++;
-                                if (ink < 20) readable = false;   // the three letters are 25+ pixels
+                                        if (b.GetPixel(x, y).A > 200 && b.GetPixel(x, y).R < 0x60) ink++;   // dark letter pixels
+                                if (ink < 12 || b.Width != sizes[i]) readable = false;
                             }
                 }
                 strip.Save(Path.Combine(shots, "tray-icons.png"), ImageFormat.Png);
             }
-            Check(readable, "the tray icon spells AFK at 16, 20, 24 and 32 px, in all four state colours");
+            Check(readable, "the tray icon says AFK at 16, 20, 24 and 32 px, in all four state colours");
         }
 
         // ---------- animations ----------

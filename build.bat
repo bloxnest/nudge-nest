@@ -19,7 +19,8 @@ set "FW=%CSC:\csc.exe=%"
 "%CSC%" /nologo /target:winexe /optimize+ /codepage:65001 /out:NudgeNest.exe ^
     /win32manifest:app.manifest /win32icon:assets\icon.ico ^
     /resource:src\MainWindow.xaml,MainWindow.xaml ^
-    /resource:assets\icon.ico,NudgeNest.icon.ico ^
+    /resource:assets\tray-on.ico,NudgeNest.tray-on.ico /resource:assets\tray-standby.ico,NudgeNest.tray-standby.ico ^
+    /resource:assets\tray-off.ico,NudgeNest.tray-off.ico /resource:assets\tray-stopped.ico,NudgeNest.tray-stopped.ico ^
     /r:System.dll /r:System.Core.dll /r:System.Xaml.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll ^
     /r:"%FW%\WPF\WindowsBase.dll" /r:"%FW%\WPF\PresentationCore.dll" /r:"%FW%\WPF\PresentationFramework.dll" ^
     src\*.cs

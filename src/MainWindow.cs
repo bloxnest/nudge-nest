@@ -202,17 +202,15 @@ namespace NudgeNest
         {
             IntPtr hWnd = new WindowInteropHelper(Window).Handle;
             double scale = VisualTreeHelper.GetDpi(Window).DpiScaleX;
-            taskbarIcon = AppIcon((int)Math.Round(24 * scale));
-            smallIcon = AppIcon((int)Math.Round(16 * scale));
-            if (taskbarIcon != null) NativeMethods.SendMessage(hWnd, WM_SETICON, IconBig, taskbarIcon.Handle);
-            if (smallIcon != null) NativeMethods.SendMessage(hWnd, WM_SETICON, IconSmall, smallIcon.Handle);
-        }
-
-        /// <summary>The picture closest to this size from the icon file built into the exe (assets\icon.ico).</summary>
-        private static Drawing.Icon AppIcon(int size)
-        {
-            using (Stream s = Assembly.GetExecutingAssembly().GetManifestResourceStream("NudgeNest.icon.ico"))
-                return s == null ? null : new Drawing.Icon(s, size, size);
+            int big = (int)Math.Round(24 * scale), small = (int)Math.Round(16 * scale);
+            IntPtr bigIcon, smallIcon;
+            // the exe's own icon (assets\icon.ico), at exactly these sizes
+            if (NativeMethods.SHDefExtractIcon(Assembly.GetExecutingAssembly().Location, 0, 0,
+                    out bigIcon, out smallIcon, (uint)(big | (small << 16))) != 0) return;
+            taskbarIcon = Drawing.Icon.FromHandle(bigIcon);
+            this.smallIcon = Drawing.Icon.FromHandle(smallIcon);
+            NativeMethods.SendMessage(hWnd, WM_SETICON, IconBig, bigIcon);
+            NativeMethods.SendMessage(hWnd, WM_SETICON, IconSmall, smallIcon);
         }
 
         internal Drawing.Size TaskbarIconSize
