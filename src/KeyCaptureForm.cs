@@ -103,10 +103,39 @@ namespace NudgeNest
             if (problem != null)
             {
                 problemLabel.Text = KeyChoice.Name(key) + " can't be used: " + problem + ".";
+                Shake();
                 return;
             }
             Key = key;
             DialogResult = DialogResult.OK;
+        }
+
+        private Tween shakeT;
+        private int problemLeft = int.MinValue;
+
+        /// <summary>A short "no" shake of the message, easing out.</summary>
+        private void Shake()
+        {
+            if (problemLeft == int.MinValue) problemLeft = problemLabel.Left;
+            if (shakeT == null)
+                shakeT = new Tween(0, delegate
+                {
+                    double t = shakeT.Value;
+                    problemLabel.Left = problemLeft + (int)System.Math.Round(System.Math.Sin(t * System.Math.PI * 6) * (1 - t) * 7);
+                });
+            shakeT.Ease = delegate (double t) { return t; };
+            shakeT.Snap(0);
+            shakeT.To(1, 380);
+        }
+
+        protected override void OnShown(System.EventArgs e)
+        {
+            base.OnShown(e);
+            if (!Motion.Enabled) return;
+            Opacity = 0;
+            Tween fade = null;
+            fade = new Tween(0, delegate { if (!IsDisposed) Opacity = fade.Value; });
+            fade.To(1, 160);
         }
     }
 }

@@ -31,17 +31,21 @@ namespace NudgeNest
         private LogForm logForm;
         private Page page = Page.Main;
         private readonly Dictionary<Page, Panel> pages = new Dictionary<Page, Panel>();
-        private readonly Dictionary<Page, int> pageHeights = new Dictionary<Page, int>();
+        private readonly Dictionary<Page, int> pageHeights = new Dictionary<Page, int>();   // at 96 dpi
+        private float scale = 1f;                                                       // screen dpi / 96
+        private readonly PageSlide slide = new PageSlide();
+        private readonly Tween heightT, fadeT;
 
         // main page
-        private readonly Label stateLabel = new Label();
-        private readonly Label robloxLabel = new Label();
+        private readonly Card card = new Card();
+        private readonly SmoothLabel stateLabel = new SmoothLabel();
+        private readonly SmoothLabel robloxLabel = new SmoothLabel();
         private readonly Dot robloxDot = new Dot();
         private readonly ToggleSwitch toggle = new ToggleSwitch();
-        private readonly Label countdownLabel = new Label();
-        private readonly Label countdownCaption = new Label();
+        private readonly SmoothLabel countdownLabel = new SmoothLabel();
+        private readonly SmoothLabel countdownCaption = new SmoothLabel();
         private readonly Segmented activityPicker = new Segmented();
-        private readonly Label activityHelp = new Label();
+        private readonly SmoothLabel activityHelp = new SmoothLabel();
         private readonly FlatButton nudgeButton = new FlatButton();
         private readonly Label sessionValue = new Label();
         private readonly Label nudgesValue = new Label();
@@ -72,6 +76,8 @@ namespace NudgeNest
             allowVisible = !startHidden;
             settings = Settings.Load();
             engine = new AntiAfkEngine(settings);
+            heightT = new Tween(0, delegate { ClientSize = new Size(ClientSize.Width, (int)Math.Round(heightT.Value)); });
+            fadeT = new Tween(1, delegate { Opacity = fadeT.Value; });
 
             SuspendLayout();
             AutoScaleDimensions = new SizeF(96F, 96F);
@@ -90,9 +96,12 @@ namespace NudgeNest
             BuildSettingsPage();
             BuildAboutPage();
             foreach (Panel p in pages.Values) Controls.Add(p);
+            slide.Visible = false;
+            Controls.Add(slide);
             ShowPage(Page.Main);
             ResumeLayout(false);
             PerformLayout();
+            scale = CurrentAutoScaleDimensions.Height / 96f;
 
             BuildTray();
             ShowValues();
@@ -134,13 +143,63 @@ namespace NudgeNest
 
         // ---------- pages ----------
 
+        /// <summary>Switch pages: the old one slides out and fades, the new one slides in, the window eases to its height.</summary>
         internal void ShowPage(Page target)
         {
+            Page old = page;
             page = target;
-            foreach (KeyValuePair<Page, Panel> p in pages) p.Value.Visible = p.Key == target;
-            ClientSize = new Size(Width0, pageHeights[target]);
-            pages[target].Size = new Size(Width0, pageHeights[target]);
+            int width = Px(Width0), height = Px(pageHeights[target]);
+            Panel to = pages[target];
+            to.Size = new Size(width, height);
             if (target == Page.Main) RefreshStatus();
+            robloxDot.Pulse = false;
+
+            bool animate = Motion.Enabled && Visible && IsHandleCreated && old != target;
+            if (!animate)
+            {
+                foreach (KeyValuePair<Page, Panel> p in pages) p.Value.Visible = p.Key == target;
+                slide.Visible = false;
+                heightT.Snap(height);
+                if (target == Page.Main) RefreshStatus();
+                return;
+            }
+
+            // picture of the page that's leaving, shown on top while the new one is prepared underneath
+            Panel from = pages[old];
+            slide.Bounds = new Rectangle(0, 0, ClientSize.Width, Math.Max(ClientSize.Height, height));
+            slide.Prepare(Snapshot(from));
+            slide.Visible = true;
+            slide.BringToFront();
+            slide.Update();
+            to.Visible = true;
+            Bitmap next = Snapshot(to);
+            foreach (Panel p in pages.Values) p.Visible = false;
+
+            slide.Play(next, target == Page.Main ? -1 : 1, 320, delegate
+            {
+                if (page != target) return;   // another page was picked meanwhile
+                to.Visible = true;
+                slide.Visible = false;
+                slide.Release();
+                if (target == Page.Main) RefreshStatus();
+            });
+            heightT.Snap(ClientSize.Height);
+            heightT.Ease = Motion.EaseInOut;
+            heightT.To(height, 320);
+        }
+
+        private static Bitmap Snapshot(Control c)
+        {
+            // premultiplied pixels make the per-frame fades much cheaper to draw
+            var bitmap = new Bitmap(Math.Max(1, c.Width), Math.Max(1, c.Height), System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+            c.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
+            return bitmap;
+        }
+
+        /// <summary>A 96-dpi layout size in real pixels on this screen.</summary>
+        private int Px(int logical)
+        {
+            return (int)Math.Round(logical * scale);
         }
 
         private Panel NewPage(Page which)
@@ -171,11 +230,12 @@ namespace NudgeNest
             aboutButton.Click += delegate { ShowPage(Page.About); };
             var tagline = UI.Label(Copy.Tagline, Theme.Text(9.75f), Theme.Muted, Margin0, 60, 392, 22);
 
-            var card = new Card();
             card.SetBounds(Margin0, 96, 392, 120);
             card.Controls.Add(UI.Caption("ANTI-AFK", 18, 16, 200, Theme.Surface));
             stateLabel.Font = Theme.Display(24f);
             stateLabel.BackColor = Theme.Surface;
+            stateLabel.Behind = Theme.Surface;
+            stateLabel.Rise = 6;
             stateLabel.SetBounds(15, 32, 230, 46);
             toggle.ShowText = true;
             toggle.SetBounds(392 - 18 - 92, 36, 92, 40);
@@ -185,10 +245,11 @@ namespace NudgeNest
                 else engine.Stop();
             };
             robloxDot.BackColor = Theme.Surface;
-            robloxDot.SetBounds(18, 89, 10, 10);
+            robloxDot.SetBounds(12, 83, 22, 22);
             robloxLabel.Font = Theme.Text(9.5f);
             robloxLabel.ForeColor = Theme.Body;
             robloxLabel.BackColor = Theme.Surface;
+            robloxLabel.Behind = Theme.Surface;
             robloxLabel.SetBounds(34, 83, 340, 22);
             card.Controls.AddRange(new Control[] { stateLabel, toggle, robloxDot, robloxLabel });
 
@@ -212,7 +273,13 @@ namespace NudgeNest
             nudgeButton.Text = "Nudge now";
             nudgeButton.Icon = Icons.Kind.Bolt;
             nudgeButton.SetBounds(Margin0, 440, 392, 46);
-            nudgeButton.Click += delegate { engine.NudgeNow(); };
+            nudgeButton.Click += delegate
+            {
+                engine.NudgeNow();
+                if (engine.RobloxCount == 0) nudgeButton.Flash("Roblox isn't running", Icons.Kind.None, 1600);
+                else if (engine.LastNudgeWorked) nudgeButton.Flash("Nudged", Icons.Kind.Check, 1400);
+                else nudgeButton.Flash("Didn't go through. See the log", Icons.Kind.None, 2200);
+            };
 
             var line = UI.Line(Margin0, 506, 392);
             var stats = new Control[]
@@ -462,10 +529,10 @@ namespace NudgeNest
             loading = true;
             activityPicker.Items = new[] { "Jump", "Camera nudge", CustomText() };
             activityPicker.SelectedIndex = (int)settings.Action;
-            activityHelp.Text = settings.Action == NudgeAction.CameraNudge ? Copy.CameraHelp
+            activityHelp.Set(settings.Action == NudgeAction.CameraNudge ? Copy.CameraHelp
                 : settings.Action == NudgeAction.CustomKey ? Copy.CustomHelp + KeyChoice.Name(settings.CustomKey)
                     + ". Change it in Options."
-                : Copy.JumpHelp;
+                : Copy.JumpHelp, Theme.Muted, true);
             int index = Array.IndexOf(Settings.IntervalChoices, settings.IntervalMinutes);
             intervalPicker.SelectedIndex = index >= 0 ? index : Array.IndexOf(Settings.IntervalChoices, 10);
             keyValue.Text = settings.CustomKey == Keys.None ? "not set" : KeyChoice.Name(settings.CustomKey);
@@ -504,7 +571,6 @@ namespace NudgeNest
                 shownState = state;
                 tray.Icon = state == EngineState.Active ? onIcon : state == EngineState.Standby ? standbyIcon
                     : state == EngineState.Halted ? haltedIcon : offIcon;
-                stateLabel.ForeColor = state == EngineState.Off ? Theme.Heading : StateColor(state);
             }
             toggle.On = engine.Running;
             onItem.Checked = engine.Running;
@@ -552,18 +618,32 @@ namespace NudgeNest
             if (tip.Length > 63) tip = tip.Substring(0, 63);
             if (tray.Text != tip) tray.Text = tip;
 
+            bool shown = Visible && page == Page.Main && !slide.Visible;
+            robloxDot.Pulse = shown && state == EngineState.Active;
+            card.Glow = state == EngineState.Active;
             if (!Visible || page != Page.Main) return;
-            UI.Set(stateLabel, state == EngineState.Active ? "ON" : state == EngineState.Standby ? "STANDBY"
-                : state == EngineState.Halted ? "STOPPED" : "OFF");
+
+            // big state word and captions cross-fade; ticking numbers change in place
+            stateLabel.Set(state == EngineState.Active ? "ON" : state == EngineState.Standby ? "STANDBY"
+                : state == EngineState.Halted ? "STOPPED" : "OFF",
+                state == EngineState.Off ? Theme.Heading : StateColor(state), true);
             robloxDot.Color = engine.RobloxCount == 0 ? Theme.Off : engine.UserPlaying || engine.RobloxInFront ? Theme.Ok
                 : StateColor(state == EngineState.Active ? EngineState.Active : EngineState.Off);
-            UI.Set(robloxLabel, RobloxText());
-            UI.Set(countdownLabel, big);
-            UI.Set(countdownCaption, caption);
+            string roblox = RobloxText();
+            robloxLabel.Set(roblox, Theme.Body, Kind(roblox) != Kind(robloxLabel.Text));
+            countdownLabel.Set(big, Theme.Heading, (big == Dash) != (countdownLabel.Text == Dash));
+            countdownCaption.Set(caption, Theme.Muted, true);
             UI.Set(sessionValue, engine.SessionStart == DateTime.MinValue ? Dash : Duration(DateTime.Now - engine.SessionStart));
             UI.Set(nudgesValue, engine.NudgesOk + " ok · " + engine.NudgesFailed + " failed");
             UI.Set(lastValue, engine.LastNudge == DateTime.MinValue ? Dash : engine.LastNudge.ToString("T"));
             lastValue.ForeColor = engine.LastNudge != DateTime.MinValue && !engine.LastNudgeWorked ? Theme.Danger : Theme.Heading;
+        }
+
+        /// <summary>The part of a status line that isn't a ticking number, e.g. "Roblox minimized".</summary>
+        private static string Kind(string text)
+        {
+            int idle = (text ?? "").IndexOf(" · idle", StringComparison.Ordinal);
+            return idle < 0 ? text : text.Substring(0, idle);
         }
 
         private string RobloxText()
@@ -627,19 +707,41 @@ namespace NudgeNest
             }, null, -1, false);
         }
 
+        /// <summary>Open the window from the tray, fading it in.</summary>
         internal void ShowFromTray()
         {
             allowVisible = true;
+            fadeT.Done = null;
+            if (!Visible) fadeT.Snap(0);
             Show();
             if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
             Activate();
             RefreshStatus();
+            fadeT.To(1, 220);
         }
 
+        /// <summary>Hide to the tray, fading out first (a minimized window just goes).</summary>
         private void HideToTray()
         {
+            if (Visible && WindowState != FormWindowState.Minimized && Motion.Enabled)
+            {
+                fadeT.Done = delegate
+                {
+                    fadeT.Done = null;
+                    FinishHiding();
+                };
+                fadeT.To(0, 170);
+                return;
+            }
+            FinishHiding();
+        }
+
+        private void FinishHiding()
+        {
             Hide();
+            fadeT.Snap(1);
             WindowState = FormWindowState.Normal;
+            robloxDot.Pulse = false;
             if (page != Page.Main) ShowPage(Page.Main);
             if (!toldAboutTray)
             {
@@ -765,14 +867,30 @@ namespace NudgeNest
         }
     }
 
-    /// <summary>A rounded surface card.</summary>
+    /// <summary>A rounded surface card. While Anti-AFK is on, its border glows faintly mint.</summary>
     internal sealed class Card : Panel
     {
+        private readonly Tween glowT;
+        private bool glow;
+
         public Card()
         {
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw
                 | ControlStyles.UserPaint, true);
             BackColor = Theme.Window;
+            glowT = new Tween(0, delegate { Invalidate(false); });
+        }
+
+        public bool Glow
+        {
+            get { return glow; }
+            set
+            {
+                if (glow == value) return;
+                glow = value;
+                if (IsHandleCreated && Visible) glowT.To(glow ? 1 : 0, 500);
+                else glowT.Snap(glow ? 1 : 0);
+            }
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -781,32 +899,255 @@ namespace NudgeNest
             using (var path = Theme.Rounded(new RectangleF(0.5f, 0.5f, Width - 1f, Height - 1f), 10))
             {
                 using (var brush = new SolidBrush(Theme.Surface)) e.Graphics.FillPath(brush, path);
-                using (var pen = new Pen(Theme.Line)) e.Graphics.DrawPath(pen, path);
+                using (var pen = new Pen(Theme.Mix(Theme.Line, Theme.Mix(Theme.Line, Theme.Accent, 0.55), glowT.Value)))
+                    e.Graphics.DrawPath(pen, path);
             }
         }
     }
 
-    /// <summary>A small colored status dot.</summary>
+    /// <summary>
+    /// The status dot. Its color glides between states, and while Anti-AFK is on a soft ring pulses out of it.
+    /// The ring has its own relaxed 30 fps timer (it moves slowly), so it never holds the fast animation timer.
+    /// </summary>
     internal sealed class Dot : Control
     {
-        private Color color = Theme.Off;
+        private const double PulseMs = 1900;
+        private Color from = Theme.Off, to = Theme.Off;
+        private readonly Tween colorT;
+        private readonly System.Windows.Forms.Timer pulseTimer = new System.Windows.Forms.Timer();
+        private double pulseStart;
+        private bool pulse;
 
         public Dot()
         {
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint, true);
+            colorT = new Tween(1, Invalidate);
+            pulseTimer.Interval = 33;
+            pulseTimer.Tick += delegate { Invalidate(); };
         }
 
         public Color Color
         {
-            get { return color; }
-            set { if (color == value) return; color = value; Invalidate(); }
+            get { return to; }
+            set
+            {
+                if (to == value) return;
+                from = Current;
+                to = value;
+                colorT.Snap(0);
+                if (IsHandleCreated && Visible) colorT.To(1, 320);
+                else colorT.Snap(1);
+            }
+        }
+
+        /// <summary>The live ring. Only runs while the window shows it, so it costs nothing in the tray.</summary>
+        public bool Pulse
+        {
+            get { return pulse; }
+            set
+            {
+                if (pulse == value) return;
+                pulse = value && Motion.Enabled;
+                if (pulse)
+                {
+                    pulseStart = Motion.Now;
+                    pulseTimer.Start();
+                }
+                else
+                {
+                    pulseTimer.Stop();
+                }
+                Invalidate();
+            }
+        }
+
+        /// <summary>True while the ring's timer runs.</summary>
+        internal bool Pulsing
+        {
+            get { return pulseTimer.Enabled; }
+        }
+
+        private Color Current
+        {
+            get { return Theme.Mix(from, to, colorT.Value); }
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            using (var brush = new SolidBrush(BackColor)) e.Graphics.FillRectangle(brush, ClientRectangle);
-            using (var brush = new SolidBrush(color)) e.Graphics.FillEllipse(brush, 1, 1, Width - 2, Height - 2);
+            Graphics g = e.Graphics;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            using (var back = new SolidBrush(BackColor)) g.FillRectangle(back, ClientRectangle);
+            float cx = Width / 2f, cy = Height / 2f, core = 4f;
+            Color c = Current;
+            if (pulse)
+            {
+                double p = Motion.EaseOut(((Motion.Now - pulseStart) % PulseMs) / PulseMs);
+                float ring = core + (float)(p * (Math.Min(Width, Height) / 2f - core - 0.5f));
+                using (var halo = new SolidBrush(Theme.Fade(c, (1 - p) * 0.45)))
+                    g.FillEllipse(halo, cx - ring, cy - ring, 2 * ring, 2 * ring);
+            }
+            using (var dot = new SolidBrush(c)) g.FillEllipse(dot, cx - core, cy - core, 2 * core, 2 * core);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) pulseTimer.Dispose();
+            base.Dispose(disposing);
+        }
+    }
+
+    /// <summary>A label whose text cross-fades (and can drift up a little) when it changes.</summary>
+    internal sealed class SmoothLabel : Label
+    {
+        private readonly Tween fadeT;
+        private string targetText;
+        private Color targetColor, shownColor;
+        private bool comingIn;
+        private int baseTop = int.MinValue;
+
+        /// <summary>The color behind the label, faded to and from.</summary>
+        public Color Behind = Theme.Window;
+
+        /// <summary>How far (in pixels) the new text drifts up into place.</summary>
+        public int Rise;
+
+        public SmoothLabel()
+        {
+            fadeT = new Tween(1, Apply);
+        }
+
+        public void Set(string text, Color color, bool animate)
+        {
+            if (text == targetText && color == targetColor) return;
+            targetText = text;
+            targetColor = color;
+            if (!animate || !IsHandleCreated || !Visible || !Motion.Enabled || Text.Length == 0)
+            {
+                fadeT.Done = null;
+                Text = text;
+                shownColor = color;
+                comingIn = false;
+                fadeT.Snap(1);
+                return;
+            }
+            if (baseTop == int.MinValue) baseTop = Top;
+            comingIn = false;
+            fadeT.Done = delegate
+            {
+                Text = targetText;
+                shownColor = targetColor;
+                comingIn = true;
+                fadeT.Done = delegate { comingIn = false; fadeT.Done = null; };
+                fadeT.To(1, 200);
+            };
+            fadeT.To(0, 120);
+        }
+
+        private void Apply()
+        {
+            double a = fadeT.Value;
+            ForeColor = Theme.Mix(Behind, shownColor, a);
+            if (Rise != 0 && baseTop != int.MinValue)
+                Top = comingIn ? baseTop + (int)Math.Round((1 - a) * Rise) : baseTop;
+        }
+    }
+
+    /// <summary>
+    /// Plays a page change: pictures of the old and new page slide sideways and cross-fade, the way modern apps
+    /// move between screens, then the real page is shown.
+    /// </summary>
+    internal sealed class PageSlide : Control
+    {
+        private Bitmap from, to;
+        private int direction;
+        private readonly Tween t;
+        private Action finished;
+
+        public PageSlide()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer
+                | ControlStyles.Opaque, true);
+            t = new Tween(0, Invalidate);
+            t.Ease = Motion.EaseOut;
+        }
+
+        /// <summary>0 at the start of a change, 1 when the new page is fully in.</summary>
+        internal double Progress
+        {
+            get { return t.Value; }
+        }
+
+        /// <summary>Frames drawn so far (self-tests measure the frame rate with it).</summary>
+        internal int Frames;
+
+        public void Prepare(Bitmap leaving)
+        {
+            Release();
+            from = leaving;
+            t.Done = null;
+            t.Snap(0);
+            Invalidate();
+        }
+
+        public void Play(Bitmap arriving, int dir, double ms, Action done)
+        {
+            to = arriving;
+            direction = dir;
+            finished = done;
+            t.Done = delegate
+            {
+                t.Done = null;
+                Action f = finished;
+                finished = null;
+                if (f != null) f();
+            };
+            t.To(1, ms);
+        }
+
+        public void Release()
+        {
+            if (from != null) from.Dispose();
+            if (to != null) to.Dispose();
+            from = to = null;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighSpeed;
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
+            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighSpeed;
+            g.Clear(Theme.Window);
+            Frames++;
+            double p = t.Value;
+            float shift = Width * 0.14f;
+            // the old page leaves quickly; the new one arrives a beat later
+            if (from != null) Draw(g, from, (float)(-direction * shift * p), 1 - Math.Min(1, p / 0.55));
+            if (to != null) Draw(g, to, (float)(direction * shift * (1 - p)), Math.Max(0, (p - 0.2) / 0.8));
+        }
+
+        private static void Draw(Graphics g, Bitmap bitmap, float x, double alpha)
+        {
+            if (alpha <= 0.01) return;
+            if (alpha >= 0.99)
+            {
+                g.DrawImageUnscaled(bitmap, (int)Math.Round(x), 0);
+                return;
+            }
+            var matrix = new System.Drawing.Imaging.ColorMatrix();
+            matrix.Matrix33 = (float)alpha;
+            using (var attributes = new System.Drawing.Imaging.ImageAttributes())
+            {
+                attributes.SetColorMatrix(matrix);
+                g.DrawImage(bitmap, new Rectangle((int)Math.Round(x), 0, bitmap.Width, bitmap.Height),
+                    0, 0, bitmap.Width, bitmap.Height, GraphicsUnit.Pixel, attributes);
+            }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) Release();
+            base.Dispose(disposing);
         }
     }
 }

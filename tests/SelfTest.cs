@@ -531,7 +531,8 @@ namespace NudgeNest
                 Snap(form.Bounds, Path.Combine(shots, "about.png"));
                 Check(PageHasText(form, "Made by xRed1"), "the About page says Made by xRed1");
                 form.ShowPage(Page.Main);
-                Pump(0.3);
+                Pump(0.6);
+                TestMotion(form, shots);
                 menu.Show(new Point(form.Right + 12, form.Top + 40));
                 modes.ShowDropDown();
                 Pump(0.8);
@@ -541,6 +542,114 @@ namespace NudgeNest
                 form.ExitApp();
                 Pump(0.3);
             }
+        }
+
+        // ---------- animations ----------
+
+        /// <summary>Checks that things move through in-between frames instead of cutting, and stop afterwards.</summary>
+        private static void TestMotion(MainForm form, string shots)
+        {
+            Section("Smooth animations");
+            Check(Motion.Enabled, "animations are on (Windows animation effects are enabled)");
+            using (var f = new Form())
+            {
+                f.StartPosition = FormStartPosition.Manual;
+                f.Location = new Point(form.Right + 20, form.Top);
+                f.ClientSize = new Size(420, 130);
+                f.BackColor = Theme.Window;
+                f.TopMost = true;
+                var sw = new ToggleSwitch();
+                sw.ShowText = true;
+                sw.SetBounds(20, 20, 92, 40);
+                var picker = new Segmented();
+                picker.Items = new[] { "1 min", "2 min", "5 min", "10 min", "15 min" };
+                picker.SetBounds(20, 76, 380, 40);
+                f.Controls.Add(sw);
+                f.Controls.Add(picker);
+                f.Show();
+                picker.SelectedIndex = 0;
+                Pump(0.3);
+
+                sw.On = true;
+                List<double> knob = Sample(() => sw.KnobPosition, 0.45);
+                int between = knob.FindAll(k => k > 0.03 && k < 0.97).Count;
+                Check(between >= 5 && knob[knob.Count - 1] == 1,
+                    "the ON/OFF knob slides across (" + between + " in-between frames, not a cut)");
+
+                picker.SelectedIndex = 4;
+                List<double> pill = Sample(() => picker.HighlightPosition, 0.45);
+                between = pill.FindAll(x => x > 0.1 && x < 3.9).Count;
+                Check(between >= 5 && pill[pill.Count - 1] == 4,
+                    "the picker's highlight glides to the new choice (" + between + " in-between frames)");
+            }
+
+            PageSlide slide = null;
+            foreach (Control c in form.Controls) if (c is PageSlide) slide = (PageSlide)c;
+            var frames = new List<Bitmap>();
+            var progress = new List<double>();
+            Rectangle area = form.Bounds;
+            filming = true;
+            var camera = new Thread(delegate ()
+            {
+                while (filming)
+                {
+                    var frame = new Bitmap(area.Width, area.Height);
+                    using (Graphics g = Graphics.FromImage(frame)) g.CopyFromScreen(area.Location, Point.Empty, area.Size);
+                    lock (frames) frames.Add(frame);
+                    Thread.Sleep(25);
+                }
+            });
+            camera.Start();
+            form.ShowPage(Page.Settings);
+            progress = Sample(() => slide.Visible ? slide.Progress : -1, 0.6);
+            filming = false;
+            camera.Join();
+            int slideFrames = progress.FindAll(x => x > 0.1 && x < 0.9).Count;
+            Check(slideFrames >= 5 && !slide.Visible && form.CurrentPage == Page.Settings,
+                "pages slide and fade into each other (" + slideFrames + " in-between frames)");
+
+            // frame rate without the camera running: the slide lasts 320 ms
+            form.ShowPage(Page.Main);
+            Pump(0.6);
+            slide.Frames = 0;
+            form.ShowPage(Page.About);
+            Pump(0.6);
+            double fps = slide.Frames / 0.32;
+            Check(slide.Frames >= 12, "the page slide draws smoothly (" + slide.Frames + " frames, about " + fps.ToString("0") + " fps)");
+            lock (frames)
+            {
+                if (frames.Count > 0)
+                {
+                    // a filmstrip of 6 frames from the transition, for a visual check
+                    int n = Math.Min(6, frames.Count), w = frames[0].Width / 2, h = frames[0].Height / 2;
+                    using (var strip = new Bitmap(w * n, h))
+                    {
+                        using (Graphics g = Graphics.FromImage(strip))
+                            for (int i = 0; i < n; i++)
+                                g.DrawImage(frames[i * (frames.Count - 1) / Math.Max(1, n - 1)], i * w, 0, w, h);
+                        strip.Save(Path.Combine(shots, "page-slide.png"), ImageFormat.Png);
+                    }
+                }
+                foreach (Bitmap b in frames) b.Dispose();
+            }
+
+            form.ShowPage(Page.Main);
+            Pump(1.2);
+            Check(!Motion.Busy, "nothing keeps animating once everything is still (no timer left running)");
+        }
+
+        private static List<double> Sample(Func<double> value, double seconds)
+        {
+            var values = new List<double>();
+            DateTime end = DateTime.UtcNow.AddSeconds(seconds);
+            while (DateTime.UtcNow < end)
+            {
+                Application.DoEvents();
+                values.Add(value());
+                Thread.Sleep(8);
+            }
+            values.Add(value());
+            return values;
         }
 
         // ---------- helpers ----------

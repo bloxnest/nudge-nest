@@ -74,16 +74,26 @@ namespace NudgeNest
             return path;
         }
 
-        public static Color Mix(Color a, Color b, float t)
+        public static Color Mix(Color a, Color b, double t)
         {
+            if (t < 0) t = 0;
+            if (t > 1) t = 1;
             return Color.FromArgb((int)(a.R + (b.R - a.R) * t), (int)(a.G + (b.G - a.G) * t), (int)(a.B + (b.B - a.B) * t));
+        }
+
+        public static Color Fade(Color c, double alpha)
+        {
+            if (alpha < 0) alpha = 0;
+            if (alpha > 1) alpha = 1;
+            return Color.FromArgb((int)(255 * alpha), c);
         }
     }
 
-    /// <summary>Base for the owner-drawn controls: double-buffered, hover tracking, keyboard focus cue.</summary>
+    /// <summary>Base for the owner-drawn controls: double-buffered, animated hover and press, keyboard focus cue.</summary>
     internal abstract class ThemedControl : Control
     {
         protected bool Hover, Pressed;
+        protected readonly Tween HoverT, PressT;
 
         protected ThemedControl()
         {
@@ -92,12 +102,20 @@ namespace NudgeNest
             BackColor = Color.Transparent;
             Cursor = Cursors.Hand;
             TabStop = true;
+            HoverT = new Tween(0, Invalidate);
+            PressT = new Tween(0, Invalidate);
         }
 
-        protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); Hover = true; Invalidate(); }
-        protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); Hover = false; Pressed = false; Invalidate(); }
-        protected override void OnMouseDown(MouseEventArgs e) { base.OnMouseDown(e); Pressed = true; Focus(); Invalidate(); }
-        protected override void OnMouseUp(MouseEventArgs e) { base.OnMouseUp(e); Pressed = false; Invalidate(); }
+        protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); Hover = true; HoverT.To(1, 140); }
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            Hover = Pressed = false;
+            HoverT.To(0, 240);
+            PressT.To(0, 160);
+        }
+        protected override void OnMouseDown(MouseEventArgs e) { base.OnMouseDown(e); Pressed = true; Focus(); PressT.To(1, 70); }
+        protected override void OnMouseUp(MouseEventArgs e) { base.OnMouseUp(e); Pressed = false; PressT.To(0, 200); }
         protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
         protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
         protected override void OnEnabledChanged(EventArgs e) { base.OnEnabledChanged(e); Invalidate(); }
@@ -110,10 +128,17 @@ namespace NudgeNest
                 g.DrawPath(pen, path);
         }
 
+        /// <summary>The control's rectangle, pressed in slightly while the mouse button is down.</summary>
+        protected RectangleF PressedRect(float depth)
+        {
+            float d = (float)(PressT.Value * depth);
+            return new RectangleF(0.5f + d, 0.5f + d, Width - 1f - 2 * d, Height - 1f - 2 * d);
+        }
+
         protected static Graphics Smooth(PaintEventArgs e)
         {
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            e.Graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+            e.Graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
             return e.Graphics;
         }
 
@@ -137,33 +162,76 @@ namespace NudgeNest
         public bool Primary = true;
         public Icons.Kind Icon = Icons.Kind.None;
 
+        // Flash() briefly swaps the label (e.g. "Nudged") with a cross-fade
+        private readonly Tween contentT;
+        private readonly Timer holdTimer = new Timer();
+        private string flashText;
+        private Icons.Kind flashIcon;
+        private bool showingFlash;
+
         public FlatButton()
         {
             Font = Theme.Text(10.5f, FontStyle.Bold);
+            contentT = new Tween(1, Invalidate);
+            holdTimer.Tick += delegate
+            {
+                holdTimer.Stop();
+                SwapContent(false);
+            };
         }
 
         protected override void OnTextChanged(EventArgs e) { base.OnTextChanged(e); Invalidate(); }
 
+        /// <summary>Show another label for a moment, cross-fading in and out.</summary>
+        public void Flash(string text, Icons.Kind icon, int holdMs)
+        {
+            flashText = text;
+            flashIcon = icon;
+            holdTimer.Stop();
+            holdTimer.Interval = Math.Max(1, holdMs);
+            SwapContent(true);
+            holdTimer.Start();
+        }
+
+        private void SwapContent(bool toFlash)
+        {
+            contentT.Done = delegate
+            {
+                showingFlash = toFlash;
+                contentT.Done = null;
+                contentT.To(1, 180);
+            };
+            contentT.To(0, 100);
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
             Graphics g = Smooth(e);
-            var r = new RectangleF(0.5f, 0.5f, Width - 1f, Height - 1f);
-            Color fill = Primary ? (Hover ? Theme.AccentHover : Theme.Accent) : (Hover ? Theme.SurfaceHover : Theme.Surface);
+            RectangleF r = PressedRect(1.5f);
+            double hover = HoverT.Value;
+            Color fill = Primary ? Theme.Mix(Theme.Accent, Theme.AccentHover, hover) : Theme.Mix(Theme.Surface, Theme.SurfaceHover, hover);
             if (!Enabled) fill = Theme.Surface;
+            fill = Theme.Mix(fill, Theme.Window, PressT.Value * 0.10);
             Color ink = !Enabled ? Theme.Muted : Primary ? Theme.OnAccent : Theme.Heading;
             using (GraphicsPath path = Theme.Rounded(r, 8))
             {
                 using (var brush = new SolidBrush(fill)) g.FillPath(brush, path);
                 if (!Primary)
-                    using (var pen = new Pen(Theme.Line)) g.DrawPath(pen, path);
+                    using (var pen = new Pen(Theme.Mix(Theme.Line, Theme.Muted, hover * 0.35))) g.DrawPath(pen, path);
             }
-            SizeF size = g.MeasureString(Text, Font);
-            float iconSize = Icon == Icons.Kind.None ? 0 : 16;
+
+            string text = showingFlash ? flashText : Text;
+            Icons.Kind icon = showingFlash ? flashIcon : Icon;
+            double alpha = contentT.Value;
+            float rise = (float)((1 - alpha) * 3);          // content drifts up a touch as it fades in
+            Color shown = Theme.Fade(ink, alpha);
+            SizeF size = g.MeasureString(text, Font);
+            float iconSize = icon == Icons.Kind.None ? 0 : 16;
             float gap = iconSize > 0 ? 8 : 0;
             float x = (Width - (size.Width + iconSize + gap)) / 2;
             if (iconSize > 0)
-                Icons.Draw(g, Icon, new RectangleF(x, (Height - iconSize) / 2, iconSize, iconSize), ink, 1.8f);
-            DrawCentered(g, Text, Font, ink, new RectangleF(x + iconSize + gap, 0, size.Width + 2, Height));
+                Icons.Draw(g, icon, new RectangleF(x, (Height - iconSize) / 2 + rise, iconSize, iconSize), shown, 1.8f);
+            DrawCentered(g, text, Font, shown, new RectangleF(x + iconSize + gap, rise, size.Width + 2, Height));
             FocusRing(g, r, 8);
         }
 
@@ -172,13 +240,20 @@ namespace NudgeNest
             base.OnKeyDown(e);
             if (e.KeyCode == Keys.Space || e.KeyCode == Keys.Enter) { OnClick(EventArgs.Empty); e.Handled = true; }
         }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) holdTimer.Dispose();
+            base.Dispose(disposing);
+        }
     }
 
-    /// <summary>A row of choices where exactly one is picked (like BloxNest's 1-6 window picker).</summary>
+    /// <summary>A row of choices where exactly one is picked. The highlight glides to the new choice.</summary>
     internal sealed class Segmented : ThemedControl
     {
         private string[] items = new string[0];
         private int selected = -1, hovered = -1;
+        private readonly Tween slideT, hoverCellT;
 
         public event EventHandler SelectedIndexChanged;
 
@@ -186,6 +261,8 @@ namespace NudgeNest
         {
             Font = Theme.Text(10f, FontStyle.Regular);
             AccessibleRole = AccessibleRole.PageTabList;
+            slideT = new Tween(0, Invalidate);
+            hoverCellT = new Tween(0, Invalidate);
         }
 
         public string[] Items
@@ -197,7 +274,21 @@ namespace NudgeNest
         public int SelectedIndex
         {
             get { return selected; }
-            set { if (selected == value) return; selected = value; Invalidate(); }
+            set
+            {
+                if (selected == value) return;
+                bool first = selected < 0;
+                selected = value;
+                if (first || !IsHandleCreated || !Visible) slideT.Snap(value);
+                else slideT.To(value, 260);
+                Invalidate();
+            }
+        }
+
+        /// <summary>Where the highlight is right now (between two choices while it glides).</summary>
+        internal double HighlightPosition
+        {
+            get { return slideT.Value; }
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -211,18 +302,30 @@ namespace NudgeNest
             }
             if (items.Length == 0) return;
             float w = (Width - 8f) / items.Length;
-            for (int i = 0; i < items.Length; i++)
+
+            if (hovered >= 0 && hovered != selected)
+                using (GraphicsPath pill = Theme.Rounded(new RectangleF(4 + hovered * w + 2, 4, w - 4, Height - 8), 7))
+                using (var brush = new SolidBrush(Theme.Mix(Theme.Surface, Theme.SurfaceHover, hoverCellT.Value)))
+                    g.FillPath(brush, pill);
+
+            if (selected >= 0)
             {
-                var cell = new RectangleF(4 + i * w + 2, 4, w - 4, Height - 8);
-                if (i == selected || i == hovered)
+                float press = (float)(PressT.Value * 1.2);
+                var pillRect = new RectangleF(4 + (float)slideT.Value * w + 2 + press, 4 + press, w - 4 - 2 * press, Height - 8 - 2 * press);
+                using (GraphicsPath pill = Theme.Rounded(pillRect, 7))
+                using (var brush = new SolidBrush(Theme.Selected))
+                    g.FillPath(brush, pill);
+            }
+
+            using (Font bold = new Font(Font, FontStyle.Bold))
+            {
+                for (int i = 0; i < items.Length; i++)
                 {
-                    using (GraphicsPath pill = Theme.Rounded(cell, 7))
-                    using (var brush = new SolidBrush(i == selected ? Theme.Selected : Theme.SurfaceHover))
-                        g.FillPath(brush, pill);
+                    var cell = new RectangleF(4 + i * w + 2, 4, w - 4, Height - 8);
+                    // text turns dark as the highlight passes under it
+                    double under = Math.Max(0, 1 - Math.Abs(i - slideT.Value));
+                    DrawCentered(g, items[i], i == selected ? bold : Font, Theme.Mix(Theme.Body, Theme.Window, under), cell);
                 }
-                bool bold = i == selected;
-                using (Font f = bold ? new Font(Font, FontStyle.Bold) : (Font)Font.Clone())
-                    DrawCentered(g, items[i], f, i == selected ? Theme.Window : Theme.Body, cell);
             }
             FocusRing(g, r, 9);
         }
@@ -238,10 +341,17 @@ namespace NudgeNest
         {
             base.OnMouseMove(e);
             int i = IndexAt(e.X);
-            if (i != hovered) { hovered = i; Invalidate(); }
+            if (i == hovered) return;
+            hovered = i;
+            hoverCellT.Snap(0);
+            hoverCellT.To(1, 150);
         }
 
-        protected override void OnMouseLeave(EventArgs e) { hovered = -1; base.OnMouseLeave(e); }
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            hovered = -1;
+            base.OnMouseLeave(e);
+        }
 
         protected override void OnMouseClick(MouseEventArgs e)
         {
@@ -287,12 +397,14 @@ namespace NudgeNest
         {
             Graphics g = Smooth(e);
             var r = new RectangleF(0.5f, 0.5f, Width - 1f, Height - 1f);
-            if (Hover || (Focused && ShowFocusCues))
+            double glow = Math.Max(HoverT.Value, Focused && ShowFocusCues ? 1 : 0);
+            if (glow > 0)
                 using (GraphicsPath path = Theme.Rounded(r, 8))
-                using (var brush = new SolidBrush(Theme.SurfaceHover))
+                using (var brush = new SolidBrush(Theme.Fade(Theme.SurfaceHover, glow)))
                     g.FillPath(brush, path);
-            float s = Math.Min(Width, Height) * 0.5f;
-            Icons.Draw(g, Icon, new RectangleF((Width - s) / 2, (Height - s) / 2, s, s), Hover ? Theme.Heading : Theme.Body, 1.6f);
+            float s = Math.Min(Width, Height) * (0.5f - (float)PressT.Value * 0.04f);
+            Icons.Draw(g, Icon, new RectangleF((Width - s) / 2, (Height - s) / 2, s, s),
+                Theme.Mix(Theme.Body, Theme.Heading, HoverT.Value), 1.6f);
             FocusRing(g, r, 8);
         }
 
@@ -312,7 +424,7 @@ namespace NudgeNest
     /// <summary>Line icons drawn with GDI+ in a 24x24 grid (Lucide-style strokes).</summary>
     internal static class Icons
     {
-        public enum Kind { None, Settings, Info, Back, Log, Bolt, Github, Globe }
+        public enum Kind { None, Settings, Info, Back, Log, Bolt, Github, Globe, Check }
 
         public static void Draw(Graphics g, Kind kind, RectangleF box, Color color, float stroke)
         {
@@ -368,6 +480,9 @@ namespace NudgeNest
                         g.DrawLines(pen, new[] { new PointF(9, 20), new PointF(9, 16.5f), new PointF(8, 14),
                             new PointF(7, 10), new PointF(12, 8.5f), new PointF(17, 10), new PointF(16, 14),
                             new PointF(15, 16.5f), new PointF(15, 20) });
+                        break;
+                    case Kind.Check:
+                        g.DrawLines(pen, new[] { new PointF(5, 12.5f), new PointF(10, 17.5f), new PointF(19.5f, 7) });
                         break;
                 }
             }
