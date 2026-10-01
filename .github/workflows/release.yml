@@ -8,9 +8,10 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write       # create the GitHub release
-  id-token: write       # sign the build provenance
-  attestations: write   # publish the attestation
+  contents: write            # create the GitHub release
+  id-token: write            # sign the build provenance
+  attestations: write        # publish the attestation
+  artifact-metadata: write   # record the attested file
 
 env:
   APP_EXE: NudgeNest.exe
@@ -20,7 +21,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Get the source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Build from source
         shell: cmd
@@ -34,7 +35,7 @@ jobs:
           "SHA-256 of $env:APP_EXE: ``$hash``" >> $env:GITHUB_STEP_SUMMARY
 
       - name: Sign build provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest@v4
         with:
           subject-path: ${{ env.APP_EXE }}
 
