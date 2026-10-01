@@ -1,7 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
-using System.Windows.Forms;
+using System.Windows;
+using System.Windows.Threading;
 
 namespace NudgeNest
 {
@@ -46,9 +47,12 @@ namespace NudgeNest
                 using (var show = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName))
                 using (var exit = new EventWaitHandle(false, EventResetMode.AutoReset, ExitEventName))
                 {
-                    Application.EnableVisualStyles();
-                    Application.SetCompatibleTextRenderingDefault(false);
-                    Application.Run(new MainForm(flags.Contains("--tray"), show, exit));
+                    // keeps running with the window hidden; only Exit (or --exit) ends it
+                    var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+                    var main = new MainWindow(show, exit);
+                    if (!flags.Contains("--tray")) main.Window.Show();
+                    else app.Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(NativeMethods.TrimMemory));
+                    app.Run();
                 }
                 mutex.ReleaseMutex();
             }

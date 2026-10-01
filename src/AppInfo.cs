@@ -1,6 +1,4 @@
 using System.Diagnostics;
-using System.Drawing;
-using System.IO;
 using System.Reflection;
 
 [assembly: AssemblyTitle("NudgeNest")]
@@ -21,17 +19,6 @@ namespace NudgeNest
         public const string Developer = "xRed1";
         public const string Website = "https://bloxnest.github.io/nudge-nest/";
         public const string Source = "https://github.com/bloxnest/nudge-nest";
-
-        /// <summary>The logo built into the exe (assets\logo-*.png), or null if it isn't there.</summary>
-        public static Image Logo(int size)
-        {
-            string name = size <= 32 ? "logo-32.png" : size <= 64 ? "logo-64.png" : "logo-256.png";
-            Stream stream = typeof(AppInfo).Assembly.GetManifestResourceStream("NudgeNest." + name);
-            if (stream == null) return null;
-            using (stream)
-            using (var image = Image.FromStream(stream))
-                return new Bitmap(image, size, size);
-        }
 
         public static void Open(string url)
         {

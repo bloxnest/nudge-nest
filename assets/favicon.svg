@@ -1,4 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="NudgeNest">
-  <path fill="#86E3CE" d="M24 40H232V216H24Z"/>
-  <path fill="#102821" d="M128 66L188 128H150V192H106V128H68Z"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges" role="img" aria-label="NudgeNest">
+  <rect width="16" height="16" rx="2.5" fill="#86E3CE"/>
+  <!-- pixel letters A F K, 4 x 5 each, same as the 16 px app icon -->
+  <path fill="#102821" d="M1 6h1v4h-1z M4 6h1v4h-1z M2 5h2v1h-2z M1 7h4v1h-4z
+                          M6 5h4v1h-4z M6 6h1v4h-1z M6 7h3v1h-3z
+                          M11 5h1v5h-1z M14 5h1v1h-1z M13 6h1v1h-1z M12 7h1v1h-1z M13 8h1v1h-1z M14 9h1v1h-1z"/>
 </svg>

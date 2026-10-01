@@ -8,7 +8,11 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
+using System.Windows.Threading;
 using N = NudgeNest.NativeMethods;
+using Wpf = System.Windows;
+using WpfControls = System.Windows.Controls;
+using WpfMedia = System.Windows.Media;
 
 namespace NudgeNest
 {
@@ -98,6 +102,7 @@ namespace NudgeNest
                 if (run("engine")) TestEngine();
                 if (run("flicker")) TestNoFlicker();
                 if (run("window")) TestWindow();
+                if (only.Contains("shots")) WebsiteShots();   // only when asked for by name
             }
             catch (Exception e)
             {
@@ -132,13 +137,6 @@ namespace NudgeNest
             Check(KeyChoice.Name(Keys.D7) == "7" && KeyChoice.Name(Keys.Left) == "Left arrow" && KeyChoice.Name(Keys.K) == "K",
                 "keys get readable names");
             Check(KeyChoice.IsExtended(Keys.Left) && !KeyChoice.IsExtended(Keys.K), "arrow keys are sent as extended keys");
-            using (var picker = new KeyCaptureForm())
-            {
-                picker.Offer(Keys.CapsLock);
-                Check(picker.Key == Keys.None && picker.ProblemText.Contains("whole PC"), "the key picker explains a refused key");
-                picker.Offer(Keys.K);
-                Check(picker.Key == Keys.K && picker.DialogResult == DialogResult.OK, "the key picker accepts K");
-            }
         }
 
         private static void TestSettings()
@@ -492,22 +490,24 @@ namespace NudgeNest
         {
             Section("Window and tray menu");
             new Settings().Save();   // defaults, in the test folder
-            using (var form = new MainForm(true, null, null))
+            var w = new MainWindow(null, null);
+            w.ShutDown = delegate { };   // Exit would end the test run otherwise
+            try
             {
-                ContextMenuStrip menu = form.TrayMenu;
+                ContextMenuStrip menu = w.TrayMenu;
                 var names = new List<string>();
                 foreach (ToolStripItem item in menu.Items) names.Add(item is ToolStripSeparator ? "-" : item.Text);
                 string shown = string.Join(" | ", names);
                 Check(shown == "Anti-AFK On | Nudge Now | Activity Mode | - | Open NudgeNest | - | Exit", "tray menu: " + shown);
                 var on = (ToolStripMenuItem)menu.Items[0];
                 Pump(0.5);
-                Check(on.Checked && form.Engine.Running, "Anti-AFK On is ticked while it's on");
+                Check(on.Checked && w.Engine.Running, "Anti-AFK On is ticked while it's on");
                 on.PerformClick();
                 Pump(0.3);
-                Check(!form.Engine.Running && !on.Checked, "clicking it turns Anti-AFK off");
+                Check(!w.Engine.Running && !on.Checked, "clicking it turns Anti-AFK off");
                 on.PerformClick();
                 Pump(0.3);
-                Check(form.Engine.Running && on.Checked, "...and on again");
+                Check(w.Engine.Running && on.Checked, "...and on again");
                 var modes = (ToolStripMenuItem)menu.Items[2];
                 Check(modes.DropDownItems.Count == 3, "Activity Mode lists Jump, Camera nudge and Custom key");
                 modes.DropDownItems[1].PerformClick();
@@ -515,82 +515,212 @@ namespace NudgeNest
                 Check(Settings.Load().Action == NudgeAction.CameraNudge && ((ToolStripMenuItem)modes.DropDownItems[1]).Checked,
                     "choosing Camera nudge in the tray is saved for next time");
 
+                var offSegment = Find<WpfControls.RadioButton>(w, "OffSegment");
+                var onSegment = Find<WpfControls.RadioButton>(w, "OnSegment");
+                offSegment.IsChecked = true;
+                Pump(0.2);
+                Check(!w.Engine.Running && !on.Checked, "the window's Off turns Anti-AFK off, and the tray menu follows");
+                onSegment.IsChecked = true;
+                Pump(0.2);
+                Check(w.Engine.Running && on.Checked, "...and On turns it back on");
+
                 // screenshots for a visual check
                 string shots = Path.Combine(bin, "screens");
                 Directory.CreateDirectory(shots);
-                form.ShowFromTray();
-                form.TopMost = true;
-                Pump(1.2);
-                Check(ContentFits(form), "the main page fits in the window (" + Overflow(form) + ")");
-                Snap(form.Bounds, Path.Combine(shots, "main.png"));
-                form.ShowPage(Page.Settings);
-                Pump(0.8);
-                Check(form.CurrentPage == Page.Settings, "the settings icon's page opens in the same window");
-                Check(ContentFits(form), "the Options page fits in the window (" + Overflow(form) + ")");
-                Snap(form.Bounds, Path.Combine(shots, "settings.png"));
-                form.ShowPage(Page.About);
-                Pump(0.8);
-                Check(ContentFits(form), "the About page fits in the window (" + Overflow(form) + ")");
-                Snap(form.Bounds, Path.Combine(shots, "about.png"));
-                Check(PageHasText(form, "Made by xRed1"), "the About page says Made by xRed1");
-                form.ShowPage(Page.Main);
+                w.ShowFromTray();
+                w.Window.Topmost = true;
+                Pump(1.0);
+                Color fill = SelectedFill(onSegment);
+                Check(fill == Color.FromArgb(0x86, 0xE3, 0xCE), "the On switch lights up mint (" + fill.Name + ")");
+                Check(ContentFits(w), "the main page fits in the window (" + Overflow(w) + ")");
+                Snap(Bounds(w), Path.Combine(shots, "main.png"));
+                var heights = new List<int> { Bounds(w).Height };
+                RenderClean(w, Path.Combine(shots, "clean-main.png"));
+
+                // Custom key with no key yet: Options opens and asks for one
+                Find<WpfControls.RadioButton>(w, "CustomSegment").IsChecked = true;
                 Pump(0.6);
-                TestMotion(form, shots);
-                menu.Show(new Point(form.Right + 12, form.Top + 40));
+                Check(w.CurrentPage == Page.Settings && w.KeyMessage.Contains("Esc cancels"),
+                    "choosing Custom key before picking one opens Options and asks for a key");
+                Check(!w.OfferKey(Keys.CapsLock) && w.KeyMessage.Contains("whole PC"), "a refused key is explained");
+                Check(w.OfferKey(Keys.K) && Settings.Load().CustomKey == Keys.K && Settings.Load().Action == NudgeAction.CustomKey,
+                    "K is saved and becomes the activity");
+                Check(Find<WpfControls.TextBlock>(w, "KeyValueText").Text == "K", "Options shows the custom key: K");
+                Check(((ToolStripMenuItem)modes.DropDownItems[2]).Checked && modes.DropDownItems[2].Text == "Custom key (K)",
+                    "the tray menu shows Custom key (K), ticked");
+                Pump(0.5);
+                Check(ContentFits(w), "the Options page fits in the window (" + Overflow(w) + ")");
+                Snap(Bounds(w), Path.Combine(shots, "settings.png"));
+                heights.Add(Bounds(w).Height);
+                RenderClean(w, Path.Combine(shots, "clean-settings.png"));
+
+                w.ShowPanel(Page.About);
+                Pump(0.6);
+                Check(w.CurrentPage == Page.About, "the About page opens in the same window");
+                Check(ContentFits(w), "the About page fits in the window (" + Overflow(w) + ")");
+                Check(HasText(Find<Wpf.FrameworkElement>(w, "AboutPanel"), "Made by xRed1"), "the About page says Made by xRed1");
+                Check(Find<WpfControls.TextBlock>(w, "VersionText").Text == "Version " + AppInfo.Version,
+                    "the About page shows the version (" + AppInfo.Version + ")");
+                Snap(Bounds(w), Path.Combine(shots, "about.png"));
+                heights.Add(Bounds(w).Height);
+                RenderClean(w, Path.Combine(shots, "clean-about.png"));
+
+                w.ShowPanel(Page.Log);
+                Pump(0.6);
+                Check(Find<WpfControls.TextBlock>(w, "LogText").Text.Contains("Custom key set to K"), "the activity log page shows the log");
+                Logger.Write("test line while the log is open");
+                Pump(0.1);
+                Check(Find<WpfControls.TextBlock>(w, "LogText").Text.Contains("test line while the log is open"),
+                    "new log lines appear while it's open");
+                Check(ContentFits(w), "the log page fits in the window (" + Overflow(w) + ")");
+                Snap(Bounds(w), Path.Combine(shots, "log.png"));
+                heights.Add(Bounds(w).Height);
+
+                Check(heights.TrueForAll(h => h == heights[0]),
+                    "the window keeps one height on every page, so switching pages doesn't jump (" + string.Join(", ", heights) + " px)");
+                w.ShowPanel(Page.Main);
+                Pump(0.6);
+                TestMotion(w, shots);
+
+                Rectangle at = Bounds(w);
+                menu.Show(new Point(at.Right + 12, at.Top + 40));
                 modes.ShowDropDown();
                 Pump(0.8);
                 Snap(Rectangle.Union(menu.Bounds, modes.DropDown.Bounds), Path.Combine(shots, "tray-menu.png"));
                 menu.Close();
+                TestTrayIcons(shots);
                 Check(true, "screenshots saved to tests\\bin\\screens");
-                form.ExitApp();
+
+                menu.Items[menu.Items.Count - 1].PerformClick();   // Exit
+                Pump(0.5);
+                Check(!w.Window.IsVisible && LogHas("NudgeNest closed"), "Exit closes the window and the app");
+            }
+            finally
+            {
+                w.Quit();
                 Pump(0.3);
             }
         }
 
+        /// <summary>
+        /// Website screenshots (run-tests.bat shots): the window at real speed, with a stand-in Roblox open,
+        /// drawn at 2x into tests\bin\website. tools\make_screenshots.py crops them for docs\assets.
+        /// </summary>
+        private static void WebsiteShots()
+        {
+            Section("Website screenshots");
+            Timing.Minute = TimeSpan.FromMinutes(1);
+            Timing.TickMs = 1000;
+            new Settings { IntervalMinutes = 15, Action = NudgeAction.CameraNudge, CustomKey = Keys.D2 }.Save();
+            string folder = Path.Combine(bin, "website");
+            Directory.CreateDirectory(folder);
+            var w = new MainWindow(null, null);
+            w.ShutDown = delegate { };
+            try
+            {
+                w.ShowFromTray();
+                Pump(1.5);
+                LaunchRoblox("website-roblox", "--start=minimized");   // opened after the app: a full countdown
+                Pump(12.5);   // a few seconds into the session
+                RenderClean(w, Path.Combine(folder, "main.png"));
+                w.ShowPanel(Page.Settings);
+                Pump(0.8);
+                RenderClean(w, Path.Combine(folder, "options.png"));
+                w.ShowPanel(Page.About);
+                Pump(0.8);
+                RenderClean(w, Path.Combine(folder, "about.png"));
+                Check(w.Engine.RobloxCount == 1 && w.Engine.NudgesFailed == 0, "screenshots saved to tests\\bin\\website");
+            }
+            finally
+            {
+                w.Quit();
+                Pump(0.3);
+            }
+        }
+
+        private static void TestTrayIcons(string shots)
+        {
+            var states = new[] { TrayIcons.On, TrayIcons.Standby, TrayIcons.Off, TrayIcons.Stopped };
+            int[] sizes = { 16, 20, 24, 32 };
+            bool readable = true;
+            using (var strip = new Bitmap(sizes.Length * 40, states.Length * 40))
+            {
+                using (Graphics g = Graphics.FromImage(strip))
+                {
+                    g.Clear(Color.FromArgb(0x20, 0x20, 0x20));
+                    for (int s = 0; s < states.Length; s++)
+                        for (int i = 0; i < sizes.Length; i++)
+                            using (Icon icon = TrayIcons.Make(states[s], sizes[i]))
+                            using (Bitmap b = icon.ToBitmap())
+                            {
+                                g.DrawImageUnscaled(b, i * 40 + 4, s * 40 + 4);
+                                int ink = 0;
+                                for (int y = 0; y < b.Height; y++)
+                                    for (int x = 0; x < b.Width; x++)
+                                        if (b.GetPixel(x, y).A > 200 && b.GetPixel(x, y).R < 0x30) ink++;
+                                if (ink < 20) readable = false;   // the three letters are 25+ pixels
+                            }
+                }
+                strip.Save(Path.Combine(shots, "tray-icons.png"), ImageFormat.Png);
+            }
+            Check(readable, "the tray icon spells AFK at 16, 20, 24 and 32 px, in all four state colours");
+        }
+
         // ---------- animations ----------
 
-        /// <summary>Checks that things move through in-between frames instead of cutting, and stop afterwards.</summary>
-        private static void TestMotion(MainForm form, string shots)
+        /// <summary>
+        /// The window animates like BloxNest: short WPF storyboards that move through in-between frames
+        /// (no cuts) and then stop, so an idle window uses no CPU.
+        /// </summary>
+        private static void TestMotion(MainWindow w, string shots)
         {
-            Section("Smooth animations");
-            Check(Motion.Enabled, "animations are on (Windows animation effects are enabled)");
-            using (var f = new Form())
-            {
-                f.StartPosition = FormStartPosition.Manual;
-                f.Location = new Point(form.Right + 20, form.Top);
-                f.ClientSize = new Size(420, 130);
-                f.BackColor = Theme.Window;
-                f.TopMost = true;
-                var sw = new ToggleSwitch();
-                sw.ShowText = true;
-                sw.SetBounds(20, 20, 92, 40);
-                var picker = new Segmented();
-                picker.Items = new[] { "1 min", "2 min", "5 min", "10 min", "15 min" };
-                picker.SetBounds(20, 76, 380, 40);
-                f.Controls.Add(sw);
-                f.Controls.Add(picker);
-                f.Show();
-                picker.SelectedIndex = 0;
-                Pump(0.3);
+            Section("Smooth animations (WPF, like BloxNest)");
+            var root = Find<Wpf.FrameworkElement>(w, "WindowRoot");
+            var scale = (WpfMedia.ScaleTransform)root.RenderTransform;
 
-                sw.On = true;
-                List<double> knob = Sample(() => sw.KnobPosition, 0.45);
-                int between = knob.FindAll(k => k > 0.03 && k < 0.97).Count;
-                Check(between >= 5 && knob[knob.Count - 1] == 1,
-                    "the ON/OFF knob slides across (" + between + " in-between frames, not a cut)");
+            // closing fades the window out, then it hides in the tray
+            Find<WpfControls.Button>(w, "CloseButton").RaiseEvent(new Wpf.RoutedEventArgs(WpfControls.Primitives.ButtonBase.ClickEvent));
+            List<double> fade = Sample(() => root.Opacity, 0.4);
+            int between = fade.FindAll(x => x > 0.05 && x < 0.95).Count;
+            Check(between >= 3 && !w.Window.IsVisible, "closing fades the window out, then hides it (" + between + " in-between frames)");
 
-                picker.SelectedIndex = 4;
-                List<double> pill = Sample(() => picker.HighlightPosition, 0.45);
-                between = pill.FindAll(x => x > 0.1 && x < 3.9).Count;
-                Check(between >= 5 && pill[pill.Count - 1] == 4,
-                    "the picker's highlight glides to the new choice (" + between + " in-between frames)");
-            }
+            // opening from the tray scales up and fades in
+            w.ShowFromTray();
+            List<double> grow = Sample(() => scale.ScaleX, 0.45);
+            between = grow.FindAll(x => x > 0.962 && x < 0.998).Count;
+            Check(between >= 4 && grow[grow.Count - 1] == 1, "opening from the tray scales the window in (" + between + " in-between frames)");
+            w.Window.Topmost = true;
+            Pump(0.3);
 
-            PageSlide slide = null;
-            foreach (Control c in form.Controls) if (c is PageSlide) slide = (PageSlide)c;
+            // switches slide their knob across
+            w.ShowPanel(Page.Settings);
+            Pump(0.5);
+            var box = Find<WpfControls.CheckBox>(w, "OptAwake");
+            var knob = (Wpf.FrameworkElement)box.Template.FindName("Knob", box);
+            var slide = (WpfMedia.TranslateTransform)((WpfMedia.TransformGroup)knob.RenderTransform).Children[1];
+            bool was = box.IsChecked == true;
+            box.IsChecked = !was;
+            List<double> knobX = Sample(() => slide.X, 0.4);
+            between = knobX.FindAll(x => x > 0.5 && x < 17.5).Count;
+            Check(between >= 4 && knobX[knobX.Count - 1] == (was ? 0 : 18), "a switch's knob slides across (" + between + " in-between frames, not a cut)");
+            box.IsChecked = was;
+            Pump(0.4);
+
+            // segmented choices fade their highlight in
+            var choices = Find<WpfControls.Primitives.UniformGrid>(w, "IntervalSegments");
+            var five = (WpfControls.RadioButton)choices.Children[2];
+            var fillBorder = (Wpf.FrameworkElement)five.Template.FindName("SelectedFill", five);
+            var keep = (WpfControls.RadioButton)choices.Children[System.Array.IndexOf(Settings.IntervalChoices, Settings.Load().IntervalMinutes)];
+            five.IsChecked = true;
+            List<double> glow = Sample(() => fillBorder.Opacity, 0.35);
+            between = glow.FindAll(x => x > 0.05 && x < 0.95).Count;
+            Check(between >= 3, "a picked choice fades in (" + between + " in-between frames)");
+            keep.IsChecked = true;
+            Pump(0.3);
+
+            // pages slide and fade into each other; film it for a visual check
             var frames = new List<Bitmap>();
-            var progress = new List<double>();
-            Rectangle area = form.Bounds;
+            Rectangle area = Bounds(w);
             filming = true;
             var camera = new Thread(delegate ()
             {
@@ -599,46 +729,43 @@ namespace NudgeNest
                     var frame = new Bitmap(area.Width, area.Height);
                     using (Graphics g = Graphics.FromImage(frame)) g.CopyFromScreen(area.Location, Point.Empty, area.Size);
                     lock (frames) frames.Add(frame);
-                    Thread.Sleep(25);
+                    Thread.Sleep(20);
                 }
             });
             camera.Start();
-            form.ShowPage(Page.Settings);
-            progress = Sample(() => slide.Visible ? slide.Progress : -1, 0.6);
+            var about = Find<Wpf.FrameworkElement>(w, "AboutPanel");
+            w.ShowPanel(Page.About);
+            List<double> pageX = Sample(() => about.RenderTransform is WpfMedia.TranslateTransform ? ((WpfMedia.TranslateTransform)about.RenderTransform).X : -1, 0.4);
             filming = false;
             camera.Join();
-            int slideFrames = progress.FindAll(x => x > 0.1 && x < 0.9).Count;
-            Check(slideFrames >= 5 && !slide.Visible && form.CurrentPage == Page.Settings,
-                "pages slide and fade into each other (" + slideFrames + " in-between frames)");
-
-            // frame rate without the camera running: the slide lasts 320 ms
-            form.ShowPage(Page.Main);
-            Pump(0.6);
-            slide.Frames = 0;
-            form.ShowPage(Page.About);
-            Pump(0.6);
-            double fps = slide.Frames / 0.32;
-            Check(slide.Frames >= 12, "the page slide draws smoothly (" + slide.Frames + " frames, about " + fps.ToString("0") + " fps)");
+            between = pageX.FindAll(x => x > 0.3 && x < 13.7).Count;
+            Check(between >= 5 && pageX[pageX.Count - 1] == 0, "pages slide and fade into each other (" + between + " in-between frames)");
             lock (frames)
             {
                 if (frames.Count > 0)
                 {
-                    // a filmstrip of 6 frames from the transition, for a visual check
-                    int n = Math.Min(6, frames.Count), w = frames[0].Width / 2, h = frames[0].Height / 2;
-                    using (var strip = new Bitmap(w * n, h))
+                    // a filmstrip of 6 frames from the transition
+                    int n = Math.Min(6, frames.Count), fw = frames[0].Width / 2, fh = frames[0].Height / 2;
+                    using (var strip = new Bitmap(fw * n, fh))
                     {
                         using (Graphics g = Graphics.FromImage(strip))
                             for (int i = 0; i < n; i++)
-                                g.DrawImage(frames[i * (frames.Count - 1) / Math.Max(1, n - 1)], i * w, 0, w, h);
+                                g.DrawImage(frames[i * (frames.Count - 1) / Math.Max(1, n - 1)], i * fw, 0, fw, fh);
                         strip.Save(Path.Combine(shots, "page-slide.png"), ImageFormat.Png);
                     }
                 }
                 foreach (Bitmap b in frames) b.Dispose();
             }
 
-            form.ShowPage(Page.Main);
-            Pump(1.2);
-            Check(!Motion.Busy, "nothing keeps animating once everything is still (no timer left running)");
+            // once everything is still, the window costs (next to) nothing
+            w.ShowPanel(Page.Main);
+            Pump(1.0);
+            TimeSpan cpuBefore = Process.GetCurrentProcess().TotalProcessorTime;
+            DateTime start = DateTime.UtcNow;
+            Pump(3);
+            double cpu = (Process.GetCurrentProcess().TotalProcessorTime - cpuBefore).TotalMilliseconds
+                / (DateTime.UtcNow - start).TotalMilliseconds * 100;
+            Check(cpu < 2, "the open window idles at " + cpu.ToString("0.0") + "% of one CPU core (the test run updates it 5x a second)");
         }
 
         private static List<double> Sample(Func<double> value, double seconds)
@@ -647,45 +774,97 @@ namespace NudgeNest
             DateTime end = DateTime.UtcNow.AddSeconds(seconds);
             while (DateTime.UtcNow < end)
             {
-                Application.DoEvents();
+                DoEvents();
                 values.Add(value());
-                Thread.Sleep(8);
+                Thread.Sleep(5);
             }
             values.Add(value());
             return values;
         }
 
-        // ---------- helpers ----------
+        // ---------- WPF helpers ----------
 
-        /// <summary>Is every control on the visible page inside the window, with the page's margin to spare?</summary>
-        private static bool ContentFits(Form form)
+        private static T Find<T>(MainWindow w, string name) where T : class
         {
-            return Overflow(form) == "fits";
+            return (T)w.Window.FindName(name);
         }
 
-        private static string Overflow(Form form)
+        private static Rectangle Bounds(MainWindow w)
         {
-            Size client = form.ClientSize;
-            foreach (Control page in form.Controls)
-            {
-                if (!(page is Panel) || !page.Visible) continue;
-                if (page.Width > client.Width || page.Height > client.Height)
-                    return "page " + page.Size + " is bigger than the window " + client;
-                foreach (Control c in page.Controls)
-                    if (c.Visible && (c.Right > client.Width - 8 || c.Bottom > client.Height))
-                        return (c.Text.Length > 0 ? "'" + c.Text + "'" : c.GetType().Name) + " ends at " + c.Right + "," + c.Bottom
-                            + " but the window is " + client.Width + " x " + client.Height;
-            }
-            return "fits";
+            N.RECT r = RectOf(new Wpf.Interop.WindowInteropHelper(w.Window).Handle);
+            return Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom);
         }
 
-        private static bool PageHasText(Control root, string text)
+        private static Color SelectedFill(WpfControls.RadioButton segment)
         {
-            foreach (Control c in root.Controls)
+            var border = (WpfControls.Border)segment.Template.FindName("SelectedFill", segment);
+            var brush = border.Background as WpfMedia.SolidColorBrush;
+            return brush == null ? Color.Empty : Color.FromArgb(brush.Color.R, brush.Color.G, brush.Color.B);
+        }
+
+        /// <summary>The window drawn on its own (no desktop behind it), at 2x for sharp website screenshots.</summary>
+        private static void RenderClean(MainWindow w, string path)
+        {
+            int width = (int)Math.Ceiling(w.Window.ActualWidth * 2), height = (int)Math.Ceiling(w.Window.ActualHeight * 2);
+            var picture = new WpfMedia.Imaging.RenderTargetBitmap(width, height, 192, 192, WpfMedia.PixelFormats.Pbgra32);
+            picture.Render(w.Window);
+            var png = new WpfMedia.Imaging.PngBitmapEncoder();
+            png.Frames.Add(WpfMedia.Imaging.BitmapFrame.Create(picture));
+            using (var file = File.Create(path)) png.Save(file);
+        }
+
+        /// <summary>Is everything on the open page inside the page's margins, with no text cut off?</summary>
+        private static bool ContentFits(MainWindow w)
+        {
+            return Overflow(w) == "fits";
+        }
+
+        private static string Overflow(MainWindow w)
+        {
+            var root = Find<Wpf.FrameworkElement>(w, "ContentRoot");
+            string name = w.CurrentPage == Page.Settings ? "SettingsPanel" : w.CurrentPage == Page.About ? "AboutPanel"
+                : w.CurrentPage == Page.Log ? "LogPanel" : "MainPanel";
+            var panel = Find<Wpf.FrameworkElement>(w, name);
+            double right = root.ActualWidth - 24 + 0.5;   // the pages' side margin
+            string problem = null;
+            Walk(panel, e =>
             {
-                if (c.Visible && c.Text == text) return true;
-                if (c.Visible && PageHasText(c, text)) return true;
-            }
+                if (problem != null || !e.IsVisible || e.ActualWidth == 0) return;
+                Wpf.Rect r = e.TransformToAncestor(root).TransformBounds(new Wpf.Rect(e.RenderSize));
+                string what = e is WpfControls.TextBlock ? "'" + ((WpfControls.TextBlock)e).Text + "'" : e.Name.Length > 0 ? e.Name : e.GetType().Name;
+                if (r.Right > right)
+                    problem = what + " ends at x=" + r.Right.ToString("0") + " but the page ends at " + right.ToString("0");
+                var text = e as WpfControls.TextBlock;
+                if (text != null && text.TextWrapping == Wpf.TextWrapping.NoWrap && TextWidth(text) > text.ActualWidth + 2)
+                    problem = what + " is cut off (" + TextWidth(text).ToString("0") + " px of text in " + text.ActualWidth.ToString("0") + " px)";
+            });
+            if (problem == null && w.Window.ActualHeight > Wpf.SystemParameters.WorkArea.Height)
+                problem = "the window is taller than the screen";
+            return problem ?? "fits";
+        }
+
+        private static void Walk(Wpf.DependencyObject e, Action<Wpf.FrameworkElement> visit)
+        {
+            var element = e as Wpf.FrameworkElement;
+            if (element != null) visit(element);
+            for (int i = 0; i < WpfMedia.VisualTreeHelper.GetChildrenCount(e); i++)
+                Walk(WpfMedia.VisualTreeHelper.GetChild(e, i), visit);
+        }
+
+        private static double TextWidth(WpfControls.TextBlock t)
+        {
+            var text = new WpfMedia.FormattedText(t.Text, CultureInfo.CurrentUICulture, t.FlowDirection,
+                new WpfMedia.Typeface(t.FontFamily, t.FontStyle, t.FontWeight, t.FontStretch), t.FontSize, WpfMedia.Brushes.Black,
+                null, WpfMedia.TextOptions.GetTextFormattingMode(t), 1.0);   // the window draws text in Display mode
+            return text.WidthIncludingTrailingWhitespace;
+        }
+
+        private static bool HasText(Wpf.DependencyObject e, string text)
+        {
+            var block = e as WpfControls.TextBlock;
+            if (block != null && block.Text == text) return true;
+            foreach (object child in Wpf.LogicalTreeHelper.GetChildren(e))
+                if (child is Wpf.DependencyObject && HasText((Wpf.DependencyObject)child, text)) return true;
             return false;
         }
 
@@ -739,7 +918,7 @@ namespace NudgeNest
             DateTime end = DateTime.UtcNow.AddSeconds(seconds);
             while (DateTime.UtcNow < end)
             {
-                Application.DoEvents();
+                DoEvents();
                 Thread.Sleep(10);
             }
         }
@@ -750,10 +929,20 @@ namespace NudgeNest
             while (DateTime.UtcNow < end)
             {
                 if (done()) return true;
-                Application.DoEvents();
+                DoEvents();
                 Thread.Sleep(10);
             }
             return done();
+        }
+
+        /// <summary>Runs whatever is waiting: Windows messages (timers, the tray) and the WPF window's work.</summary>
+        private static void DoEvents()
+        {
+            Application.DoEvents();
+            var frame = new DispatcherFrame();
+            Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.Background,
+                new DispatcherOperationCallback(delegate { frame.Continue = false; return null; }), null);
+            Dispatcher.PushFrame(frame);
         }
 
         /// <summary>Simulates you using the PC: a 1-pixel mouse wiggle every 0.4 s.</summary>

@@ -11,12 +11,12 @@ if not exist bin mkdir bin
 "%CSC%" /nologo /target:winexe /optimize+ /out:bin\RobloxPlayerBeta.exe /win32manifest:..\app.manifest FakeRoblox.cs || exit /b 1
 copy /y bin\RobloxPlayerBeta.exe bin\OtherApp.exe >nul
 
+set "FW=%CSC:\csc.exe=%"
 "%CSC%" /nologo /target:exe /optimize+ /codepage:65001 /main:NudgeNest.SelfTest /out:bin\SelfTest.exe ^
     /win32manifest:..\app.manifest /win32icon:..\assets\icon.ico ^
-    /resource:..\assets\logo-32.png,NudgeNest.logo-32.png ^
-    /resource:..\assets\logo-64.png,NudgeNest.logo-64.png ^
-    /resource:..\assets\logo-256.png,NudgeNest.logo-256.png ^
-    /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll ^
+    /resource:..\src\MainWindow.xaml,MainWindow.xaml ^
+    /r:System.dll /r:System.Core.dll /r:System.Xaml.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll ^
+    /r:"%FW%\WPF\WindowsBase.dll" /r:"%FW%\WPF\PresentationCore.dll" /r:"%FW%\WPF\PresentationFramework.dll" ^
     ..\src\*.cs SelfTest.cs || exit /b 1
 
 rem no arguments = every test; or name the parts to run: keys settings log engine flicker window

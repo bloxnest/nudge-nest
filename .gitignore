@@ -10,3 +10,4 @@ tests/bin/
 .vscode/
 Thumbs.db
 desktop.ini
+__pycache__/

@@ -1,34 +1,63 @@
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
-using System.Windows.Forms;
 
 namespace NudgeNest
 {
-    /// <summary>Tray icons drawn at startup: the logo with a small status dot (or a plain dot if the logo is missing).</summary>
+    /// <summary>
+    /// The hidden-icons icon: a small tile that says AFK in pixel letters (sharp at 16-32 px).
+    /// Its colour shows the state: mint = on, amber = standby, grey = off, red = stopped.
+    /// Same letters as tools/make_icon.py.
+    /// </summary>
     internal static class TrayIcons
     {
-        public static Icon Make(Color status)
+        public static readonly Color On = Color.FromArgb(0x86, 0xE3, 0xCE);
+        public static readonly Color Standby = Color.FromArgb(0xE6, 0xC4, 0x7A);
+        public static readonly Color Off = Color.FromArgb(0x8C, 0x95, 0x8A);
+        public static readonly Color Stopped = Color.FromArgb(0xF0, 0x9A, 0x9A);
+        private static readonly Color Ink = Color.FromArgb(0x10, 0x28, 0x21);
+
+        private static readonly string[][] Font4x5 =
         {
-            using (var bmp = new Bitmap(32, 32))
+            new[] { "0110", "1001", "1111", "1001", "1001" },   // A
+            new[] { "1111", "1000", "1110", "1000", "1000" },   // F
+            new[] { "1001", "1010", "1100", "1010", "1001" },   // K
+        };
+
+        private static readonly string[][] Font5x7 =
+        {
+            new[] { "01110", "10001", "10001", "11111", "10001", "10001", "10001" },
+            new[] { "11111", "10000", "10000", "11110", "10000", "10000", "10000" },
+            new[] { "10001", "10010", "10100", "11000", "10100", "10010", "10001" },
+        };
+
+        public static Icon Make(Color fill, int size)
+        {
+            size = Math.Max(16, size);
+            using (var bmp = new Bitmap(size, size))
             {
                 using (Graphics g = Graphics.FromImage(bmp))
                 {
-                    g.SmoothingMode = SmoothingMode.AntiAlias;
-                    g.InterpolationMode = InterpolationMode.HighQualityBicubic;
                     g.Clear(Color.Transparent);
-                    using (Image logo = AppInfo.Logo(32))
+                    g.SmoothingMode = SmoothingMode.AntiAlias;
+                    float r = Math.Max(2, size / 6f);
+                    using (var path = RoundedSquare(size, r))
+                    using (var brush = new SolidBrush(fill))
+                        g.FillPath(brush, path);
+
+                    g.SmoothingMode = SmoothingMode.None;
+                    string[][] font = size >= 24 && size < 32 ? Font5x7 : Font4x5;
+                    int scale = size >= 32 ? 2 : 1;
+                    int glyphW = font[0][0].Length, glyphH = font[0].Length;
+                    int width = (3 * glyphW + 2) * scale, height = glyphH * scale;
+                    int x0 = (size - width) / 2, y0 = (size - height) / 2;
+                    using (var ink = new SolidBrush(Ink))
                     {
-                        if (logo != null)
-                        {
-                            g.DrawImage(logo, 0, 0, 32, 32);
-                            using (var ring = new SolidBrush(Theme.Window)) g.FillEllipse(ring, 17, 17, 15, 15);
-                            using (var dot = new SolidBrush(status)) g.FillEllipse(dot, 19.5f, 19.5f, 10, 10);
-                        }
-                        else
-                        {
-                            using (var dot = new SolidBrush(status)) g.FillEllipse(dot, 2, 2, 28, 28);
-                        }
+                        for (int letter = 0; letter < 3; letter++)
+                            for (int row = 0; row < glyphH; row++)
+                                for (int col = 0; col < glyphW; col++)
+                                    if (font[letter][row][col] == '1')
+                                        g.FillRectangle(ink, x0 + (letter * (glyphW + 1) + col) * scale, y0 + row * scale, scale, scale);
                     }
                 }
                 IntPtr handle = bmp.GetHicon();
@@ -43,58 +72,17 @@ namespace NudgeNest
                 }
             }
         }
-    }
 
-    /// <summary>Dark colors for the tray menu, matching the app.</summary>
-    internal sealed class DarkMenuRenderer : ToolStripProfessionalRenderer
-    {
-        public DarkMenuRenderer() : base(new DarkColors()) { RoundedEdges = false; }
-
-        protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+        private static GraphicsPath RoundedSquare(int size, float radius)
         {
-            e.TextColor = e.Item.Enabled ? Theme.Heading : Theme.Muted;
-            base.OnRenderItemText(e);
-        }
-
-        protected override void OnRenderArrow(ToolStripArrowRenderEventArgs e)
-        {
-            e.ArrowColor = Theme.Body;
-            base.OnRenderArrow(e);
-        }
-
-        protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
-        {
-            Graphics g = e.Graphics;
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            Rectangle r = e.ImageRectangle;
-            using (var pen = new Pen(Theme.Accent, 2f))
-            {
-                pen.StartCap = pen.EndCap = LineCap.Round;
-                g.DrawLines(pen, new[]
-                {
-                    new PointF(r.Left + r.Width * 0.2f, r.Top + r.Height * 0.55f),
-                    new PointF(r.Left + r.Width * 0.42f, r.Top + r.Height * 0.75f),
-                    new PointF(r.Left + r.Width * 0.8f, r.Top + r.Height * 0.3f),
-                });
-            }
-        }
-
-        private sealed class DarkColors : ProfessionalColorTable
-        {
-            public override Color ToolStripDropDownBackground { get { return Theme.Surface; } }
-            public override Color ImageMarginGradientBegin { get { return Theme.Surface; } }
-            public override Color ImageMarginGradientMiddle { get { return Theme.Surface; } }
-            public override Color ImageMarginGradientEnd { get { return Theme.Surface; } }
-            public override Color MenuBorder { get { return Theme.Line; } }
-            public override Color MenuItemBorder { get { return Theme.SurfaceHover; } }
-            public override Color MenuItemSelected { get { return Theme.SurfaceHover; } }
-            public override Color MenuItemSelectedGradientBegin { get { return Theme.SurfaceHover; } }
-            public override Color MenuItemSelectedGradientEnd { get { return Theme.SurfaceHover; } }
-            public override Color SeparatorDark { get { return Theme.Line; } }
-            public override Color SeparatorLight { get { return Theme.Line; } }
-            public override Color CheckBackground { get { return Theme.Surface; } }
-            public override Color CheckSelectedBackground { get { return Theme.SurfaceHover; } }
-            public override Color CheckPressedBackground { get { return Theme.SurfaceHover; } }
+            var path = new GraphicsPath();
+            float d = radius * 2, s = size - 1;
+            path.AddArc(0, 0, d, d, 180, 90);
+            path.AddArc(s - d, 0, d, d, 270, 90);
+            path.AddArc(s - d, s - d, d, d, 0, 90);
+            path.AddArc(0, s - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
         }
     }
 }
